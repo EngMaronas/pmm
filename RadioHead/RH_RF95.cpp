@@ -28,6 +28,10 @@ RH_RF95::RH_RF95(uint8_t slaveSelectPin, uint8_t interruptPin, RHGenericSPI& spi
     RHSPIDriver(slaveSelectPin, spi),
     _rxBufValid(0)
 {
+    Serial.print("cs is = ");
+    Serial.println(slaveSelectPin);
+    Serial.print("int is = ");
+    Serial.println(interruptPin);
     _interruptPin = interruptPin;
     _myInterruptIndex = 0xff; // Not allocated yet
 }
@@ -251,7 +255,7 @@ bool RH_RF95::recv(uint8_t* buf, uint8_t* len)
 }
 
 /* Changed by Henrique Bruno. Now it returns the length of the payload */
-/* Make sure your buffer have a length of 255 */
+/* Make sure your buffer have a length of 251 (255 - 4 the default headers (maybe will remove them on future)) */
 /* the return value is 32 bits just for speeding up in 32bits systems, like teensy. */
 uint32_t RH_RF95::recv2(uint8_t* buf)
 {
@@ -269,7 +273,7 @@ uint32_t RH_RF95::recv2(uint8_t* buf)
 
 bool RH_RF95::send(const uint8_t* data, uint8_t len)
 {
-    if (len > RH_RF95_MAX_MESSAGE_LEN)
+    if (len > RH_RF95_MAX_MESSAGE_LEN || !len)
 	return false;
 
     waitPacketSent(); // Make sure we dont interrupt an outgoing message
@@ -293,6 +297,41 @@ bool RH_RF95::send(const uint8_t* data, uint8_t len)
     // when Tx is done, interruptHandler will fire and radio mode will return to STANDBY
     return true;
 }
+
+
+/* By Henrique Bruno, UFRJ Minerva Rockets.
+*/
+bool RH_RF95::sendArrayOfPointersOfSmartSizes(uint8_t** data, uint8_t sizesArray[], uint8_t numberVariables, uint8_t totalByteSize)
+{
+    if (!totalByteSize)
+        return false;
+
+    //unsigned long timeTo = millis();
+    waitPacketSent(); // Make sure we dont interrupt an outgoing message
+    setModeIdle();
+
+    if (!waitCAD())
+	return false;  // Check channel activity
+    //Serial.print(millis() - timeTo); Serial.println("ms idle");
+    // Position at the beginning of the FIFO
+    spiWrite(RH_RF95_REG_0D_FIFO_ADDR_PTR, 0);
+    // The headers
+    spiWrite(RH_RF95_REG_00_FIFO, _txHeaderTo);
+    spiWrite(RH_RF95_REG_00_FIFO, _txHeaderFrom);
+    spiWrite(RH_RF95_REG_00_FIFO, _txHeaderId);
+    spiWrite(RH_RF95_REG_00_FIFO, _txHeaderFlags);
+    // The message data
+    spiBurstWriteArrayOfPointersOfSmartSizes(RH_RF95_REG_00_FIFO, data, sizesArray, numberVariables);
+
+    spiWrite(RH_RF95_REG_22_PAYLOAD_LENGTH, totalByteSize + RH_RF95_HEADER_LEN);
+
+    setModeTx(); // Start the transmitter
+    // when Tx is done, interruptHandler will fire and radio mode will return to STANDBY
+    return true;
+}
+
+
+
 /* By Henrique Bruno, UFRJ Minerva Rockets. Send an array of pointers to 4 bytes variables. Do typecast on the variables before, to uint8_t.
     float floatVar;
     uint32_t uint32Var;
@@ -302,6 +341,7 @@ bool RH_RF95::send(const uint8_t* data, uint8_t len)
         (uint8_t*) & uint32Var
     }
     sendArrayOfPointersOf4Bytes(array, SIZE)
+    NOT USED ANYMORE!! WILL LEAVE IT HERE IF SOMEDAY I NEED IT (I DONT THINK SOOO!)
 */
 bool RH_RF95::sendArrayOfPointersOf4Bytes(uint8_t** data, uint8_t number4BytesVariables)
 {
@@ -327,6 +367,8 @@ bool RH_RF95::sendArrayOfPointersOf4Bytes(uint8_t** data, uint8_t number4BytesVa
     // when Tx is done, interruptHandler will fire and radio mode will return to STANDBY
     return true;
 }
+
+
 
 bool RH_RF95::printRegisters()
 {
